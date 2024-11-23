@@ -5,6 +5,7 @@ import { PineconeStore } from "@langchain/pinecone";
 import { HuggingFaceInferenceEmbeddings } from "@langchain/community/embeddings/hf";
 import {
   Index,
+  IndexModel,
   Pinecone as PineconeClient,
   RecordMetadata,
 } from "@pinecone-database/pinecone";
@@ -12,6 +13,9 @@ import type { Document } from "@langchain/core/documents";
 import { v4 as uuidv4 } from "uuid";
 import { ChatGroq } from "@langchain/groq";
 import { ChatPromptTemplate } from "@langchain/core/prompts";
+import { AIMessageChunk } from "@langchain/core/messages";
+import { Runnable, RunnableConfig } from "@langchain/core/runnables";
+import { SerializedFields } from "@langchain/core/dist/load/map_keys";
 
 const { API_KEY, HUGGINGFACEHUB_API_KEY, API_GROQ } = process.env;
 
@@ -19,7 +23,7 @@ const pdfFile = "./src/data/imperioromano.pdf";
 const indexName = "lab-3";
 
 export const initializePineconeClient = async () => {
-  const pinecone = new PineconeClient({
+  const pinecone: PineconeClient = new PineconeClient({
     apiKey: API_KEY!,
   });
   return pinecone;
@@ -29,7 +33,9 @@ export const ensurePineconeIndex = async (
   pinecone: PineconeClient,
   indexName: string
 ) => {
-  const indexExists = await pinecone.describeIndex(indexName).catch(() => null);
+  const indexExists: IndexModel | null = await pinecone
+    .describeIndex(indexName)
+    .catch(() => null);
 
   if (!indexExists) {
     await pinecone.createIndex({
@@ -48,16 +54,16 @@ export const ensurePineconeIndex = async (
 };
 
 export const cargarChat = async () => {
-  const loader = new PDFLoader(pdfFile);
+  const loader: PDFLoader = new PDFLoader(pdfFile);
 
-  const docs = await loader.load();
+  const docs: Document<Record<string, string>>[] = await loader.load();
 
   return docs;
 };
 
 export const vectorizePDF = async () => {
   const docs: Document<Record<string, string>>[] = [];
-  const data = await cargarChat();
+  const data: Document<Record<string, string>>[] = await cargarChat();
 
   for (let index = 0; index < data.length; index++) {
     const element = data[index];
@@ -70,15 +76,19 @@ export const vectorizePDF = async () => {
 export const initializeVectorStore = async (
   pineconeIndex: Index<RecordMetadata>
 ) => {
-  const embeddings = new HuggingFaceInferenceEmbeddings({
-    apiKey: HUGGINGFACEHUB_API_KEY,
-  });
+  const embeddings: HuggingFaceInferenceEmbeddings =
+    new HuggingFaceInferenceEmbeddings({
+      apiKey: HUGGINGFACEHUB_API_KEY,
+    });
 
-  const vectorStore = await PineconeStore.fromExistingIndex(embeddings, {
-    pineconeIndex,
-    maxConcurrency: 5,
-    namespace: "lab-3-ns",
-  });
+  const vectorStore: PineconeStore = await PineconeStore.fromExistingIndex(
+    embeddings,
+    {
+      pineconeIndex,
+      maxConcurrency: 5,
+      namespace: "lab-3-ns",
+    }
+  );
 
   return vectorStore;
 };
@@ -95,7 +105,7 @@ export const addDocumentsToVectorStore = async (
     documents.push(element);
   }
 
-  const vectors = await vectorStore.addDocuments(documents, {
+  const vectors: string[] = await vectorStore.addDocuments(documents, {
     namespace: "lab-3-ns",
   });
 
@@ -105,10 +115,13 @@ export const addDocumentsToVectorStore = async (
 export const uploadVectorToPinecone = async () => {
   const data: Document<Record<string, string>>[] = await vectorizePDF();
 
-  const pinecone = await initializePineconeClient();
-  const pineconeIndex = await ensurePineconeIndex(pinecone, indexName);
-  const vectorStore = await initializeVectorStore(pineconeIndex);
-  const vectors = await addDocumentsToVectorStore(vectorStore, data);
+  const pinecone: PineconeClient = await initializePineconeClient();
+  const pineconeIndex: Index<RecordMetadata> = await ensurePineconeIndex(
+    pinecone,
+    indexName
+  );
+  const vectorStore: PineconeStore = await initializeVectorStore(pineconeIndex);
+  const vectors: string[] = await addDocumentsToVectorStore(vectorStore, data);
 
   if (vectors === null) {
     return {
@@ -124,7 +137,7 @@ export const uploadVectorToPinecone = async () => {
 };
 
 export const groqChat = async (input: string) => {
-  const promptTemplate = `
+  const promptTemplate: string = `
   Eres un experto profesor del imperio romano , tu trabajo es responder mi pregunta en base al contexto que te envio.
   Sigue los siguientes pasos:
   1 ) Analiza detalladamente la pregunta he intentan encontrar la respuesta.
@@ -134,7 +147,7 @@ export const groqChat = async (input: string) => {
   {context}
   `;
 
-  const llm = new ChatGroq({
+  const llm: ChatGroq = new ChatGroq({
     model: "mixtral-8x7b-32768",
     temperature: 0,
     maxTokens: undefined,
@@ -142,15 +155,21 @@ export const groqChat = async (input: string) => {
     apiKey: API_GROQ,
   });
 
-  const { response: context, source } = await searchQuery(input);
+  const { response: context, source }: { response: string[]; source: string } =
+    await searchQuery(input);
 
-  const prompt = ChatPromptTemplate.fromMessages([
+  const prompt: ChatPromptTemplate = ChatPromptTemplate.fromMessages([
     { role: "system", content: promptTemplate },
     { role: "human", content: "{question}" },
   ]);
 
-  const chain = prompt.pipe(llm);
-  const response = await chain.invoke({
+  const chain: Runnable<
+    any,
+    AIMessageChunk,
+    RunnableConfig<Record<string, any>>
+  > = prompt.pipe(llm);
+
+  const response: AIMessageChunk = await chain.invoke({
     context,
     question: input,
   });
@@ -161,11 +180,15 @@ export const groqChat = async (input: string) => {
 };
 
 export const searchQuery = async (query: string) => {
-  const pinecone = await initializePineconeClient();
-  const pineconeIndex = await ensurePineconeIndex(pinecone, indexName);
-  const vectorStore = await initializeVectorStore(pineconeIndex);
+  const pinecone: PineconeClient = await initializePineconeClient();
+  const pineconeIndex: Index<RecordMetadata> = await ensurePineconeIndex(
+    pinecone,
+    indexName
+  );
+  const vectorStore: PineconeStore = await initializeVectorStore(pineconeIndex);
 
-  const results = await vectorStore.similaritySearch(query, 4);
+  const results: Document<Record<string, string>>[] =
+    await vectorStore.similaritySearch(query, 4);
   const response: string[] = results.map(
     (res) => `* ${res.pageContent} [${JSON.stringify(res.metadata)}]`
   );

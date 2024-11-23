@@ -8,7 +8,7 @@ import morgan from "morgan";
 config();
 
 const app = express();
-const port = process.env.API_PORT;
+const port = process.env.API_PORT || 3000;
 const entorno = process.env.NODE_ENV || "dev";
 
 const corsOptions = {
@@ -24,11 +24,17 @@ app.use(bodyParser.urlencoded({ extended: true }));
 
 app.use("/", chatRoute);
 
+app.get("/favicon.ico", (req: Request, res: Response) => {
+  res.status(204);
+});
+
 app.get("/", (req: Request, res: Response) => {
   res.json({
     message: "Bienvenido a la api de chatbot. Hecha por Fabrizio Ferroni.",
   });
 });
+
+app.disable("x-powered-by");
 
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
