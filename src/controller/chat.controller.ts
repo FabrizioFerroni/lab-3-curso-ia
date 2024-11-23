@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import {
   cargarChat,
   groqChat,
+  searchQuery,
   uploadVectorToPinecone,
   vectorizePDF,
 } from "../services/chat.service";
@@ -28,8 +29,13 @@ export async function getVectores(req: Request, res: Response) {
 
 export async function getInfoPinecone(req: Request, res: Response) {
   try {
-    const vectores = await uploadVectorToPinecone();
-    res.send(vectores);
+    const { message, data }: { message: string; data: string[] | null } =
+      await uploadVectorToPinecone();
+
+    res.status(200).json({
+      message: message,
+      data: data,
+    });
   } catch (error: any) {
     res.status(500).json({ message: error.message });
   }
@@ -38,7 +44,20 @@ export async function getInfoPinecone(req: Request, res: Response) {
 export async function postChat(req: Request, res: Response) {
   try {
     const { input } = req.body;
-    const response = await groqChat(input);
+    const { response, source } = await groqChat(input);
+    res.status(200).json({
+      response,
+      source,
+    });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+}
+
+export async function searchQueryC(req: Request, res: Response) {
+  try {
+    const { query } = req.body;
+    const response = await searchQuery(query);
     res.status(200).json({
       response,
       source: "./src/data/imperioromano.pdf",
